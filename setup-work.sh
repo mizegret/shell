@@ -2,7 +2,6 @@
 set -euo pipefail
 
 DIRS=(
-  "$HOME/workspace/3d4"
   "$HOME/workspace/dotfiles"
   "$HOME/workspace/neovim"
   "$HOME/workspace/shell"
