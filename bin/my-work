@@ -17,7 +17,7 @@ DIRS=(
 SESSION="work"
 
 if [[ -z "${DIRS+x}" ]]; then
-  echo "DIRS is not set. Define DIRS in setup-work.sh."
+  echo "DIRS is not set. Define DIRS in bin/my-work."
   exit 1
 fi
 
