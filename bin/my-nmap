@@ -1,0 +1,33 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+if [[ $# -ge 1 ]]; then
+    IP="$1"
+elif [[ -n "${RHOST:-}" ]]; then
+    IP="$RHOST"
+else
+    echo "Usage: my-nmap <IP>"
+    echo "       or set RHOST env var"
+    exit 1
+fi
+
+if ! command -v nmap &>/dev/null; then
+    echo "nmap is not installed"
+    exit 1
+fi
+
+echo "[*] Stage 1: full port scan -> nmap-all.txt"
+nmap -p- --min-rate 5000 "$IP" -oN nmap-all.txt
+
+PORTS=$(grep '^[0-9]' nmap-all.txt | cut -d'/' -f1 | tr '\n' ',' | sed 's/,$//')
+
+if [[ -z "$PORTS" ]]; then
+    echo "[!] No open ports found"
+    exit 1
+fi
+
+echo "[*] Open ports: $PORTS"
+echo "[*] Stage 2: detailed scan -> nmap-detail.txt"
+nmap -sC -sV -p "$PORTS" "$IP" -oN nmap-detail.txt
+
+echo "[+] Done."
