@@ -1,0 +1,64 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+if [[ $# -ge 1 ]]; then
+    IP="$1"
+elif [[ -n "${RHOST:-}" ]]; then
+    IP="$RHOST"
+else
+    echo "Usage: fetch-well-known <IP>"
+    echo "       or set RHOST env var"
+    exit 1
+fi
+
+if ! command -v curl &>/dev/null; then
+    echo "curl is not installed"
+    exit 1
+fi
+
+PATHS=(
+    "/robots.txt"
+    "/sitemap.xml"
+    "/.well-known/security.txt"
+    "/security.txt"
+    "/humans.txt"
+    "/.env"
+    "/.git/HEAD"
+)
+
+OUTFILE="well-known.txt"
+: > "$OUTFILE"
+
+echo "[*] Target: http://$IP"
+echo "[*] Target: http://$IP" >> "$OUTFILE"
+echo "" >> "$OUTFILE"
+
+for p in "${PATHS[@]}"; do
+    URL="http://${IP}${p}"
+    RESPONSE=$(curl -s --connect-timeout 5 --max-time 10 -w "\n%{http_code}" "$URL") || {
+        echo "[!] Timeout: IP が到達不能かもしれません"
+        break
+    }
+    STATUS="${RESPONSE##*$'\n'}"
+    BODY="${RESPONSE%$'\n'*}"
+
+    if [[ "$STATUS" == "200" ]]; then
+        echo "[+] Found: $URL (200)"
+        {
+            echo "[+] Found: $URL (200)"
+            echo "--- Response Body ---"
+            echo "$BODY"
+            echo "---------------------"
+            echo ""
+        } >> "$OUTFILE"
+        echo "--- Response Body ---"
+        echo "$BODY"
+        echo "---------------------"
+    else
+        echo "[-] Not found: $URL ($STATUS)"
+        echo "[-] Not found: $URL ($STATUS)" >> "$OUTFILE"
+    fi
+done
+
+echo ""
+echo "[+] Done. Results saved to $OUTFILE"
