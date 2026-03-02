@@ -1,0 +1,149 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+# --- Usage ---
+usage() {
+    echo "Usage: my-ffuf <type> [IP]"
+    echo "       or set RHOST env var"
+    echo ""
+    echo "Types:"
+    echo "  init    Initial directory/file discovery"
+    echo "  query   Parameter name brute-force on a URL"
+    echo "  llm     LLM-based adaptive recon on a specific URL"
+    exit 1
+}
+
+# --- type 取得 ---
+if [[ $# -lt 1 ]]; then
+    usage
+fi
+
+TYPE="$1"
+shift
+
+# --- IP 取得 ---
+if [[ "$TYPE" != "query" && "$TYPE" != "llm" ]]; then
+    if [[ $# -ge 1 ]]; then
+        IP="$1"
+    elif [[ -n "${RHOST:-}" ]]; then
+        IP="$RHOST"
+    else
+        usage
+    fi
+fi
+
+# --- 結果出力 ---
+output_results() {
+    local outjson="$1" outcsv="$2"
+    echo ""
+    echo "[+] Raw JSON: $outjson"
+    jq -r '
+  ["status","length","words","lines","content_type","url","redirect"],
+  (.results | unique_by(.url) | .[] | [
+    .status,
+    .length,
+    .words,
+    .lines,
+    .["content-type"],
+    .url,
+    .redirectlocation
+  ])
+  | @csv
+' "$outjson" | tee "$outcsv"
+    echo ""
+    echo "[+] Done. Results saved to $outcsv"
+}
+
+# --- 依存チェック ---
+if ! command -v ffuf &>/dev/null; then
+    echo "ffuf is not installed"
+    exit 1
+fi
+
+if ! command -v jq &>/dev/null; then
+    echo "jq is not installed"
+    exit 1
+fi
+
+if ! command -v claude &>/dev/null; then
+    echo "claude is not installed"
+    exit 1
+fi
+
+# --- ffuf 共通オプション ---
+FFUF_OPTS=(-t 150 -timeout 5 -c)
+
+# --- type 別処理 ---
+case "$TYPE" in
+    init)
+        WORDLIST="/usr/share/seclists/Discovery/Web-Content/common.txt"
+        OUTJSON="ffuf-${TYPE}-result.json"
+        OUTCSV="ffuf-${TYPE}-result.csv"
+
+        echo "[*] Type: init"
+        echo "[*] Target: http://$IP"
+        echo "[*] Wordlist: $WORDLIST"
+
+        ffuf -u "http://${IP}/FUZZ" \
+             -w "$WORDLIST" \
+             "${FFUF_OPTS[@]}" -ac \
+             -e .php,.html,.txt,.bak \
+             -recursion -recursion-depth 2 \
+             -o "$OUTJSON" -of json
+
+        output_results "$OUTJSON" "$OUTCSV"
+        ;;
+    query)
+        if [[ $# -lt 1 ]]; then
+            echo "[!] query type requires a URL"
+            echo "    Usage: my-ffuf query <url>"
+            exit 1
+        fi
+        TARGET_URL="$1"
+        WORDLIST="/usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt"
+        OUTJSON="ffuf-${TYPE}-result.json"
+        OUTCSV="ffuf-${TYPE}-result.csv"
+
+        echo "[*] Type: query"
+        echo "[*] Target: $TARGET_URL?FUZZ=1"
+        echo "[*] Wordlist: $WORDLIST"
+
+        ffuf -u "${TARGET_URL}?FUZZ=1" \
+             -w "$WORDLIST" \
+             "${FFUF_OPTS[@]}" \
+             -o "$OUTJSON" -of json
+
+        output_results "$OUTJSON" "$OUTCSV"
+        ;;
+    llm)
+        if [[ $# -lt 1 ]]; then
+            echo "[!] llm type requires a URL"
+            echo "    Usage: my-ffuf llm <url>"
+            exit 1
+        fi
+        TARGET_URL="$1"
+        OUTFILE="ffuf-llm-result.md"
+        SCRIPT_DIR="${0:a:h}"
+        PROMPT_FILE="${SCRIPT_DIR}/../.claude/my-ffuf-llm.md"
+
+        if [[ ! -f "$PROMPT_FILE" ]]; then
+            echo "[!] Prompt file not found: $PROMPT_FILE"
+            exit 1
+        fi
+
+        echo "[*] Type: llm"
+        echo "[*] Target: $TARGET_URL"
+        echo "[*] Output: $OUTFILE"
+
+        PROMPT=$(sed -e "s|{{TARGET_URL}}|${TARGET_URL}|g" \
+                     -e "s|{{OUTFILE}}|${OUTFILE}|g" \
+                     "$PROMPT_FILE")
+
+        claude -p "$PROMPT" --dangerously-skip-permissions --verbose
+        ;;
+    *)
+        echo "[!] Unknown type: $TYPE"
+        echo ""
+        usage
+        ;;
+esac
