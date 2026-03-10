@@ -17,7 +17,7 @@ if ! command -v nmap &>/dev/null; then
 fi
 
 echo "[*] Stage 1: full port scan -> nmap-all.txt"
-nmap -p- --min-rate 5000 "$IP" -oN nmap-all.txt
+nmap -Pn -p- --min-rate 5000 "$IP" -oN nmap-all.txt
 
 PORTS=$(grep '^[0-9]' nmap-all.txt | cut -d'/' -f1 | tr '\n' ',' | sed 's/,$//')
 
@@ -28,6 +28,6 @@ fi
 
 echo "[*] Open ports: $PORTS"
 echo "[*] Stage 2: detailed scan -> nmap-detail.txt"
-nmap -sC -sV -p "$PORTS" "$IP" -oN nmap-detail.txt
+nmap -Pn -sC -sV -p "$PORTS" "$IP" -oN nmap-detail.txt
 
 echo "[+] Done."
